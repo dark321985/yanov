@@ -23,13 +23,13 @@ export async function audit(db: Queryable,type: string,id: string|null,action: s
 export async function ensureCharges(db: Queryable,today: string,ahead=12,leaseId?: string) {
   const leases=(await db.query(`SELECT * FROM leases ${leaseId?'WHERE id=$1':''} ORDER BY id FOR UPDATE`,leaseId?[leaseId]:[])).rows;
   for(const lease of leases) {
+    if(lease.released_on)continue;
     const rates=(await db.query('SELECT * FROM lease_rate_versions WHERE lease_id=$1 ORDER BY effective_date',[lease.id])).rows;
     if(!rates.length)throw new Error('LEASE_RATE_MISSING');
     const count=Math.min(2400,Math.max(1,periodIndex(lease.start_date,today)+1)+ahead);
     for(let index=0;index<count;index++) {
       const start=boundary(lease.start_date,index),end=boundary(lease.start_date,index+1);
       if(lease.end_date&&start>=lease.end_date)break;
-      if(lease.end_date&&end>lease.end_date)throw conflict('Дата окончания должна совпадать с границей расчётного месяца.');
       const rate=rates.filter((r)=>r.effective_date<=start).at(-1);
       if(!rate)throw new Error('LEASE_RATE_MISSING');
       await db.query(`INSERT INTO charges(id,lease_id,period_index,period_start,period_end,due_date,amount_minor)
@@ -62,8 +62,8 @@ export async function allLeases(db: Queryable,today: string,where='true',values:
     let paidThrough: string|null=null;
     for(const charge of own) { if(charge.remainingMinor>0)break; paidThrough=charge.periodEnd; }
     return {id:row.id,clientId:row.client_id,warehouseId:row.warehouse_id,clientName:row.client_name,warehouseNumber:row.warehouse_number,
-      startDate:row.start_date,endDate:row.end_date,notes:row.notes,version:row.version,
-      status:row.end_date&&row.end_date<=today?'ended':row.start_date>today?'scheduled':'active',monthlyRateMinor:number(rate.monthly_amount_minor),
+      startDate:row.start_date,endDate:row.end_date,releasedOn:row.released_on,notes:row.notes,version:row.version,
+      status:row.released_on?'ended':row.start_date>today?'scheduled':'active',monthlyRateMinor:number(rate.monthly_amount_minor),
       debtMinor:own.filter((c)=>c.dueDate<today).reduce((sum,c)=>sum+c.remainingMinor,0),paidThrough,
       nextDueDate:own.find((c)=>c.remainingMinor>0)?.dueDate??null,
       rates:ownRates.map((r)=>({id:r.id,effectiveDate:r.effective_date,monthlyRateMinor:number(r.monthly_amount_minor)}))} satisfies LeaseDto;
@@ -136,15 +136,14 @@ export async function reversePayment(pool: pg.Pool,id: string,reason: string) {
     await audit(tx,'payment',id,'reversed',{reason});
   });
 }
-export async function createLease(pool: pg.Pool,input: {clientId:string;warehouseId:string;startDate:string;endDate:string|null;monthlyRateMinor:number;notes:string},today: string) {
-  if(input.endDate&&(!isBoundary(input.startDate,input.endDate)||input.endDate<=input.startDate))throw conflict('Окончание должно совпадать с началом следующего расчётного месяца.');
+export async function createLease(pool: pg.Pool,input: {clientId:string;warehouseId:string;startDate:string;monthlyRateMinor:number;notes:string},today: string) {
   const leaseId=await transaction(pool,async(tx)=>{
     const client=(await tx.query('SELECT archived_at FROM clients WHERE id=$1 FOR UPDATE',[input.clientId])).rows[0];
     const warehouse=(await tx.query('SELECT archived_at,availability FROM warehouses WHERE id=$1 FOR UPDATE',[input.warehouseId])).rows[0];
     if(!client||!warehouse)throw missing();
     if(client.archived_at||warehouse.archived_at||warehouse.availability!=='available')throw conflict('Клиент или склад недоступны для новой аренды.');
     const id=randomUUID();
-    await tx.query('INSERT INTO leases(id,client_id,warehouse_id,start_date,end_date,notes) VALUES($1,$2,$3,$4,$5,$6)',[id,input.clientId,input.warehouseId,input.startDate,input.endDate,input.notes]);
+    await tx.query('INSERT INTO leases(id,client_id,warehouse_id,start_date,notes) VALUES($1,$2,$3,$4,$5)',[id,input.clientId,input.warehouseId,input.startDate,input.notes]);
     await tx.query('INSERT INTO lease_rate_versions(id,lease_id,effective_date,monthly_amount_minor) VALUES($1,$2,$3,$4)',[randomUUID(),id,input.startDate,input.monthlyRateMinor]);
     await ensureCharges(tx,today,12,id);await audit(tx,'lease',id,'created');return id;
   });
@@ -154,7 +153,7 @@ export async function changeRate(pool: pg.Pool,id: string,input:{effectiveDate:s
   await transaction(pool,async(tx)=>{
     const row=(await tx.query('SELECT * FROM leases WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!row)throw missing();
     if(row.version!==input.version)throw conflict('Аренда изменена в другой вкладке. Обновите данные.');
-    if(input.effectiveDate<=today||!isBoundary(row.start_date,input.effectiveDate)||(row.end_date&&input.effectiveDate>=row.end_date))
+    if(row.released_on||input.effectiveDate<=today||!isBoundary(row.start_date,input.effectiveDate)||(row.end_date&&input.effectiveDate>=row.end_date))
       throw conflict('Новая ставка применяется с границы будущего расчётного месяца действующей аренды.');
     const paid=(await tx.query(`SELECT 1 FROM payment_allocations a JOIN payments p ON p.id=a.payment_id JOIN charges c ON c.id=a.charge_id
       WHERE c.lease_id=$1 AND c.period_start>=$2 AND p.reversed_at IS NULL LIMIT 1`,[id,input.effectiveDate])).rowCount;
@@ -166,18 +165,18 @@ export async function changeRate(pool: pg.Pool,id: string,input:{effectiveDate:s
     await audit(tx,'lease',id,'rate_changed',{effectiveDate:input.effectiveDate,monthlyRateMinor:input.monthlyRateMinor});
   });
 }
-export async function closeLease(pool: pg.Pool,id: string,end: string,version: number,today: string) {
+export async function releaseLease(pool: pg.Pool,id: string,version: number,today: string) {
   await transaction(pool,async(tx)=>{
     const row=(await tx.query('SELECT * FROM leases WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!row)throw missing();
     if(row.version!==version)throw conflict('Аренда изменена. Обновите данные.');
-    if(end<=row.start_date||!isBoundary(row.start_date,end))throw conflict('Выберите границу расчётного месяца. Дата — первый день, когда склад уже свободен.');
-    if(row.end_date&&end>row.end_date)throw conflict('Продление завершённой аренды выполняется новым договором.');
-    const paid=(await tx.query(`SELECT 1 FROM payment_allocations a JOIN payments p ON p.id=a.payment_id JOIN charges c ON c.id=a.charge_id
-      WHERE c.lease_id=$1 AND c.period_start>=$2 AND p.reversed_at IS NULL LIMIT 1`,[id,end])).rowCount;
-    if(paid)throw conflict('После выбранной даты есть оплаченные месяцы. Сначала урегулируйте оплаты.');
-    await tx.query('UPDATE leases SET end_date=$2,version=version+1,updated_at=now() WHERE id=$1',[id,end]);
-    await tx.query("UPDATE charges SET cancelled_at=now(),cancel_reason='lease_closed' WHERE lease_id=$1 AND period_start>=$2 AND cancelled_at IS NULL",[id,end]);
-    await tx.query("UPDATE notification_jobs SET status='cancelled',result_code='LEASE_CLOSED' WHERE lease_id=$1 AND status IN ('pending','sending') AND charge_id IN (SELECT id FROM charges WHERE cancelled_at IS NOT NULL)",[id]);
-    await audit(tx,'lease',id,'closed',{endDate:end});await ensureCharges(tx,today,12,id);
+    if(row.released_on)throw conflict('Склад по этой аренде уже освобождён.');
+    // Accrue the current period before stopping the schedule, even after worker downtime.
+    await ensureCharges(tx,today,0,id);
+    const end=today<row.start_date?row.start_date:today;
+    await tx.query('UPDATE leases SET end_date=$2,released_on=$3,version=version+1,updated_at=now() WHERE id=$1',[id,end,today]);
+    // Preserve full current-month amount and every actual payment/allocation.
+    await tx.query("UPDATE charges SET cancelled_at=now(),cancel_reason='warehouse_released' WHERE lease_id=$1 AND (period_start>$2 OR $3::date>$2::date) AND cancelled_at IS NULL",[id,today,row.start_date]);
+    await tx.query("UPDATE notification_jobs SET status='cancelled',result_code='LEASE_RELEASED',locked_until=NULL WHERE lease_id=$1 AND status IN ('pending','sending')",[id]);
+    await audit(tx,'lease',id,'released',{releasedOn:today,withoutRecalculation:true});
   });
 }

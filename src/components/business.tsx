@@ -15,7 +15,6 @@ import { useWorkspace } from "../context";
 import {
   chargeNames,
   date,
-  inclusiveEnd,
   leaseNames,
   methodNames,
   money,
@@ -190,9 +189,9 @@ export function LeaseTable({ items }: { items: LeaseDto[] }) {
             <div className="cell-stack">
               <span>с {date(row.startDate)}</span>
               <span className="cell-secondary">
-                {row.endDate
-                  ? `по ${date(inclusiveEnd(row.endDate))}`
-                  : "Без даты окончания"}
+                {row.releasedOn
+                  ? `${row.startDate > row.releasedOn ? "Отменена" : "Освобождён"} ${date(row.releasedOn)}`
+                  : "Бессрочно"}
               </span>
             </div>
           ),

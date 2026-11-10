@@ -49,7 +49,7 @@ test('deployment: empty external-style database, safe restart, identity/nonempty
     } finally {client.release();}
     assert.equal((await manual.pool.query('SELECT count(*) FROM clients')).rows[0].count,'0');
     assert.equal((await manual.pool.query('SELECT count(*) FROM owner_account')).rows[0].count,'0');
-    assert.equal((await manual.pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'2');
+    assert.equal((await manual.pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'3');
     assert.equal(await initializeEmptyDatabase(manual.pool),'already-initialized');
   } catch {throw new Error('DEPLOYMENT_CHECK_FAILED: '+step);}
   finally {await fixture.close();await unrelated.close();await manual.close();}

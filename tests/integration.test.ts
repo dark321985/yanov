@@ -5,7 +5,7 @@ import { testDatabase } from './helpers.js';
 import { buildApp } from '../server/app.js';
 import { setupOwner } from '../server/auth.js';
 import { migrate } from '../server/migrations.js';
-import { allCharges,allLeases,changeRate,closeLease,createLease,paymentPreview,reversePayment,savePayment,settings } from '../server/services.js';
+import { allCharges,allLeases,changeRate,releaseLease,createLease,paymentPreview,reversePayment,savePayment,settings } from '../server/services.js';
 import { boundary } from '../server/dates.js';
 import { runScheduler,type TelegramProvider } from '../server/telegram.js';
 
@@ -36,13 +36,13 @@ test('PostgreSQL: owner, dates, concurrency, financial history, reports and remi
     });
     const alice=await makeClient('Client A'),bob=await makeClient('Client B'),warehouse=await makeWarehouse('01'),warehouse2=await makeWarehouse('02');
     const today='2026-03-10';
-    const lease=await createLease(pool,{clientId:alice.id,warehouseId:warehouse.id,startDate:'2026-01-31',endDate:null,monthlyRateMinor:10000,notes:''},today);
-    const second=await createLease(pool,{clientId:alice.id,warehouseId:warehouse2.id,startDate:'2026-02-10',endDate:null,monthlyRateMinor:25000,notes:''},today);
+    const lease=await createLease(pool,{clientId:alice.id,warehouseId:warehouse.id,startDate:'2026-01-31',monthlyRateMinor:10000,notes:''},today);
+    const second=await createLease(pool,{clientId:alice.id,warehouseId:warehouse2.id,startDate:'2026-02-10',monthlyRateMinor:25000,notes:''},today);
     let charges=await allCharges(pool,today,'c.lease_id=$1 AND c.cancelled_at IS NULL',[lease.id]);
     await t.test('individual rates, anchored dates, overlap exclusion and optimistic edits',async()=>{
       assert.equal(lease.monthlyRateMinor,10000);assert.equal(second.monthlyRateMinor,25000);
       assert.equal(charges[0]!.periodEnd,'2026-02-28');assert.equal(charges[1]!.periodEnd,'2026-03-31');
-      await assert.rejects(()=>createLease(pool,{clientId:bob.id,warehouseId:warehouse.id,startDate:'2026-03-01',endDate:null,monthlyRateMinor:9000,notes:''},today));
+      await assert.rejects(()=>createLease(pool,{clientId:bob.id,warehouseId:warehouse.id,startDate:'2026-03-01',monthlyRateMinor:9000,notes:''},today));
       const stale=await request('PATCH',`/api/clients/${alice.id}`,{name:'Changed',phone:'',email:'',contact:'',notes:'',version:99});assert.equal(stale.statusCode,409);
     });
     const pay=(amount:number,ids:string[],key=randomUUID())=>savePayment(pool,{leaseId:lease.id,receivedOn:'2026-03-07',amountMinor:amount,method:'transfer',notes:'',chargeIds:ids,idempotencyKey:key},today);
@@ -69,9 +69,9 @@ test('PostgreSQL: owner, dates, concurrency, financial history, reports and remi
       await changeRate(pool,lease.id,{effectiveDate:'2026-08-31',monthlyRateMinor:20000,version:1},today);
       const refreshed=await allCharges(pool,today,'c.lease_id=$1 AND c.cancelled_at IS NULL',[lease.id]);
       assert.equal(refreshed.find((c)=>c.periodStart==='2026-08-31')!.amountMinor,20000);assert.equal(refreshed[0]!.amountMinor,10000);
-      await assert.rejects(()=>closeLease(pool,lease.id,'2026-04-30',2,today));
-      await closeLease(pool,lease.id,'2026-09-30',2,today);
-      assert.ok((await allCharges(pool,today,'c.lease_id=$1 AND c.cancelled_at IS NULL',[lease.id])).every((c)=>c.periodStart<'2026-09-30'));
+      await assert.rejects(()=>releaseLease(pool,lease.id,1,today));
+      await releaseLease(pool,lease.id,2,today);
+      assert.ok((await allCharges(pool,today,'c.lease_id=$1 AND c.cancelled_at IS NULL',[lease.id])).every((c)=>c.periodStart<=today));
       await reversePayment(pool,firstPayment.id,'Synthetic correction');
       const after=await allCharges(pool,today,'c.lease_id=$1 AND c.cancelled_at IS NULL',[lease.id]);assert.equal(after[0]!.remainingMinor,4000);
       assert.equal((await pool.query('SELECT count(*) FROM payment_reversals WHERE payment_id=$1',[firstPayment.id])).rows[0].count,'1');

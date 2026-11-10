@@ -42,7 +42,6 @@ const fieldLabels: Record<string, string> = {
   warehouseId: "Склад",
   leaseId: "Аренда",
   startDate: "Начало аренды",
-  endDate: "Дата освобождения",
   effectiveDate: "Дата изменения ставки",
   monthlyRateMinor: "Ставка за месяц",
   amountMinor: "Сумма поступления",

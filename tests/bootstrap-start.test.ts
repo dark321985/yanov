@@ -33,7 +33,7 @@ test('compiled startup initializes empty production-style database before readin
     const id=randomUUID();await fixture.pool.query("INSERT INTO clients(id,name) VALUES($1,'Synthetic restart record')",[id]);
     await stop();step='second startup';await start();
     assert.equal((await fixture.pool.query('SELECT count(*) FROM clients WHERE id=$1',[id])).rows[0].count,'1');
-    assert.equal((await fixture.pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'2');
+    assert.equal((await fixture.pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'3');
   } catch {throw new Error('COMPILED_BOOTSTRAP_CHECK_FAILED: '+step);}
   finally {await stop();await fixture.close();}
 });

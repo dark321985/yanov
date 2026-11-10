@@ -26,6 +26,7 @@
     "test:domain": "tsx --test tests/domain.test.ts",
     "test:password": "tsx --test tests/password-input.test.ts",
     "test:integration": "tsx --test tests/integration.test.ts",
+    "test:rental-release": "tsx --test tests/rental-release.test.ts",
     "test:backup": "tsx --test tests/backup.test.ts",
     "test:browser": "tsx --test tests/browser.test.ts",
     "test:demo-finance": "tsx --test tests/demo-finance.test.ts",

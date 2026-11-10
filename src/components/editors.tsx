@@ -261,7 +261,6 @@ export function LeaseEditor({
       clientId: client?.id ?? "",
       warehouseId: warehouse?.id ?? "",
       startDate: today,
-      endDate: "",
       rate: "",
       notes: "",
     }),
@@ -277,15 +276,12 @@ export function LeaseEditor({
       async () => {
         if (!form.clientId || !form.warehouseId)
           throw new Error("Выберите клиента и склад.");
-        if (form.endDate && form.endDate <= form.startDate)
-          throw new Error("Дата освобождения должна быть позже начала аренды.");
         return api("/api/leases", {
           method: "POST",
           body: {
             clientId: form.clientId,
             warehouseId: form.warehouseId,
             startDate: form.startDate,
-            endDate: form.endDate || null,
             monthlyRateMinor: parseMoney(form.rate),
             notes: form.notes,
           },
@@ -342,15 +338,6 @@ export function LeaseEditor({
           onChange={field("startDate")}
           required
         />
-        <Field
-          name="endDate"
-          label="Дата освобождения"
-          type="date"
-          value={form.endDate}
-          onChange={field("endDate")}
-          min={form.startDate}
-          description="Необязательно. С этой даты склад уже свободен."
-        />
       </div>
       <Field
         name="monthlyRateMinor"
@@ -370,8 +357,8 @@ export function LeaseEditor({
         multiline
       />
       <div className="info-note">
-        Система проверит пересечение сроков с другими арендами. Указанная дата
-        освобождения в оплачиваемый срок не включается.
+        Аренда бессрочная и продолжается, пока вы не нажмёте «Освободить склад».
+        Оплата нескольких месяцев вперёд не ограничивает срок аренды.
       </div>
     </FormDialog>
   );
@@ -391,6 +378,7 @@ export function LeaseActionEditor({
   const [effectiveDate, setEffectiveDate] = useState("");
   const [rate, setRate] = useState(decimalMoney(lease.monthlyRateMinor));
   const mutation = useMutation();
+  const releaseLabel = lease.status === "scheduled" ? "Отменить аренду" : "Освободить склад";
   const dirty =
     action === "notes"
       ? notes !== lease.notes
@@ -404,8 +392,8 @@ export function LeaseActionEditor({
             method: "PATCH",
             body: { notes, version: lease.version },
           });
-        if (!effectiveDate) throw new Error("Выберите дату.");
-        if (action === "rate")
+        if (action === "rate") {
+          if (!effectiveDate) throw new Error("Выберите дату.");
           return api(`/api/leases/${lease.id}/rates`, {
             method: "POST",
             body: {
@@ -414,15 +402,18 @@ export function LeaseActionEditor({
               version: lease.version,
             },
           });
-        return api(`/api/leases/${lease.id}/close`, {
+        }
+        return api(`/api/leases/${lease.id}/release`, {
           method: "POST",
-          body: { endDate: effectiveDate, version: lease.version },
+          body: { version: lease.version },
         });
       },
       () => {
         invalidate();
         notify(
-          action === "close" ? "Срок аренды изменён" : "Изменения сохранены",
+          action === "close"
+            ? lease.status === "scheduled" ? "Аренда отменена" : "Склад освобождён"
+            : "Изменения сохранены",
         );
         onClose();
       },
@@ -435,7 +426,7 @@ export function LeaseActionEditor({
           ? "Заметка к аренде"
           : action === "rate"
             ? "Новая ставка аренды"
-            : "Завершение аренды"
+            : releaseLabel
       }
       description={`Склад № ${lease.warehouseNumber} · ${lease.clientName}`}
       onClose={onClose}
@@ -443,7 +434,7 @@ export function LeaseActionEditor({
       busy={mutation.busy}
       error={mutation.error}
       dirty={dirty}
-      submitLabel={action === "close" ? "Подтвердить завершение" : "Сохранить"}
+      submitLabel={action === "close" ? releaseLabel : "Сохранить"}
     >
       {action === "notes" ? (
         <Field
@@ -455,22 +446,18 @@ export function LeaseActionEditor({
         />
       ) : (
         <>
-          <Field
-            name={action === "rate" ? "effectiveDate" : "endDate"}
-            label={
-              action === "rate" ? "Действует с даты" : "Склад свободен с даты"
-            }
-            type="date"
-            value={effectiveDate}
-            onChange={setEffectiveDate}
-            min={action === "rate" ? today : lease.startDate}
-            required
-            description={
-              action === "rate"
-                ? "Только граница будущего расчётного периода."
-                : "Дата освобождения не включается в оплачиваемый срок. Укажите границу расчётного периода."
-            }
-          />
+          {action === "rate" && (
+            <Field
+              name="effectiveDate"
+              label="Действует с даты"
+              type="date"
+              value={effectiveDate}
+              onChange={setEffectiveDate}
+              min={today}
+              required
+              description="Только граница будущего расчётного периода."
+            />
+          )}
           {action === "rate" ? (
             <>
               <Field
@@ -499,9 +486,11 @@ export function LeaseActionEditor({
                 </div>
               </div>
               <div className="info-note">
-                Аренда остаётся в истории. Уже оплаченные будущие периоды не
-                позволяют завершить аренду раньше них. Задолженность не
-                списывается.
+                {lease.status === "scheduled"
+                  ? "Запланированная аренда будет отменена, все её начисления прекратятся."
+                  : `Склад освободится сегодня, ${date(today)}. Начавшийся расчётный месяц и прежний долг сохранятся без перерасчёта. Начисления следующих месяцев отменятся.`}
+                {" "}Все внесённые оплаты и история сохранятся, включая оплату будущих месяцев.
+                Автоматического возврата денег нет.
               </div>
             </>
           )}

@@ -42,7 +42,7 @@ export async function runScheduler(pool:pg.Pool,config:AppConfig,provider:Telegr
     await connection.query("UPDATE notification_jobs SET status='uncertain',result_code='WORKER_INTERRUPTED' WHERE status='sending' AND locked_until<$1",[now]);
     if(!options.telegramEnabled||!config.TELEGRAM_BOT_TOKEN||!options.telegramChatId)return;
     if(timeIn(options.timezone,now)<options.reminderTime)return;
-    const charges=await allCharges(connection,today);
+    const charges=await allCharges(connection,today,'c.cancelled_at IS NULL AND l.released_on IS NULL');
     const candidates=charges.filter((c)=>c.remainingMinor>0&&addDays(c.dueDate,-options.reminderDays)<=today&&addDays(c.dueDate,-options.reminderDays)>=addDays(today,-7));
     for(const charge of candidates) {
       await connection.query(`INSERT INTO notification_jobs(id,lease_id,charge_id,scheduled_on,rule_days,next_attempt_at)
@@ -62,7 +62,7 @@ export async function runScheduler(pool:pg.Pool,config:AppConfig,provider:Telegr
         await tx.query('SELECT id FROM leases WHERE id=$1 FOR UPDATE',[job.lease_id]);
         await tx.query('SELECT singleton FROM app_settings WHERE singleton FOR SHARE');
         const current=await settings(tx);
-        const charge=(await allCharges(tx,today,'c.id=$1 AND c.cancelled_at IS NULL',[job.charge_id]))[0];
+        const charge=(await allCharges(tx,today,'c.id=$1 AND c.cancelled_at IS NULL AND l.released_on IS NULL',[job.charge_id]))[0];
         if(!current.telegramEnabled||current.reminderDays!==job.rule_days||!charge||charge.remainingMinor===0
           ||job.scheduled_on<addDays(today,-7)) {
           await tx.query("UPDATE notification_jobs SET status='cancelled',result_code='NO_LONGER_REQUIRED' WHERE id=$1",[job.id]);return;

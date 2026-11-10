@@ -31,7 +31,7 @@ export interface WarehouseDto {
 export interface RateDto { id: string; effectiveDate: string; monthlyRateMinor: number }
 export interface LeaseDto {
   id: string; clientId: string; warehouseId: string; clientName: string; warehouseNumber: string;
-  startDate: string; endDate: string | null; notes: string; version: number; status: LeaseStatus;
+  startDate: string; endDate: string | null; releasedOn: string | null; notes: string; version: number; status: LeaseStatus;
   monthlyRateMinor: number; debtMinor: number; paidThrough: string | null; nextDueDate: string | null;
   rates: RateDto[];
 }

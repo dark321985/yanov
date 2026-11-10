@@ -11,9 +11,9 @@ All money values are integer kopecks. All business dates are YYYY-MM-DD. Period 
 - GET /api/warehouses?search=&occupancy=all|occupied|free&archived=false&page=1&pageSize=25 -> Page<WarehouseDto>.
 - POST /api/warehouses `{number,area:null|number,address,notes,availability:'available'|'maintenance'}`; PATCH same + version; archive `{version}`. GET /api/warehouses/:id -> `{warehouse,leases,charges,payments}`.
 - GET /api/leases?search=&status=all|active|scheduled|ended&clientId=&warehouseId=&page=1&pageSize=25 -> Page<LeaseDto>.
-- POST /api/leases `{clientId,warehouseId,startDate,endDate:null|date,monthlyRateMinor,notes}`. GET /api/leases/:id -> `{lease,charges,payments}`. PATCH /api/leases/:id `{notes,version}`.
+- POST /api/leases `{clientId,warehouseId,startDate,monthlyRateMinor,notes}` creates an indefinite rental, no planned end allowed. GET /api/leases/:id -> `{lease,charges,payments}`; lease includes `releasedOn:null|date` and actual exclusive occupancy `endDate` (for cancellation before start, equals startDate and produces an empty occupancy range). PATCH /api/leases/:id `{notes,version}`.
 - POST /api/leases/:id/rates `{effectiveDate,monthlyRateMinor,version}`. Boundary of a future period only.
-- POST /api/leases/:id/close `{endDate,version}`. End is exclusive boundary; paid future periods prevent close.
+- POST /api/leases/:id/release `{version}` immediately releases the warehouse using today's date in business timezone. No supplied end date. Keeps full started month and previous debt; cancels following charges and pending reminders, preserves every payment/allocation/receipt without refund. Before start, cancels the reservation and all charges. Optimistic version check; duplicate release rejected. Same-day re-rental is allowed.
 - POST /api/leases/:id/extend-schedule `{months:1..120}` -> charges (create beyond default horizon for multi-month payment).
 - GET /api/charges?from=&to=&clientId=&warehouseId=&leaseId=&status=all|open|paid|overdue&page=1&pageSize=100 -> Page<ChargeDto>. `from/to` refer to due date, inclusive; no dates means all generated charges. Cancelled charges excluded by default.
 - GET /api/schedule?from=&to=&clientId=&warehouseId= -> `{items:ChargeDto[],overdue:ChargeDto[]}`.

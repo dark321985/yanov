@@ -22,6 +22,6 @@ test('custom-format PostgreSQL dump restores into a separate disposable database
     await pgTool({...base,DATABASE_URL:process.env.MIGRATION_DATABASE_URL||base.DATABASE_URL},'pg_restore',file,targetName);
     assert.equal(Number((await target.pool.query('SELECT count(*) FROM clients')).rows[0].count),1);
     assert.equal((await target.pool.query('SELECT name FROM clients')).rows[0].name,'Synthetic restore verification');
-    assert.equal(Number((await target.pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count),2);
+    assert.equal(Number((await target.pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count),3);
   } finally {await source.close();await target.close();await unlink(file).catch(()=>{});}
 });

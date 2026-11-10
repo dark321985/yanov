@@ -7,7 +7,7 @@ export const money=z.number().int().min(1).max(1_000_000_000_000);
 const text=(max: number)=>z.string().trim().max(max).default('');
 export const clientInput=z.object({name:z.string().trim().min(1).max(200),phone:text(80),email:z.union([z.literal(''),z.email()]).default(''),contact:text(200),notes:text(4000)});
 export const warehouseInput=z.object({number:z.string().trim().min(1).max(80),area:z.number().positive().max(1_000_000).nullable().default(null),address:text(500),notes:text(4000),availability:z.enum(['available','maintenance']).default('available')});
-export const leaseInput=z.object({clientId:id,warehouseId:id,startDate:day,endDate:day.nullable().default(null),monthlyRateMinor:money,notes:text(4000)});
+export const leaseInput=z.object({clientId:id,warehouseId:id,startDate:day,monthlyRateMinor:money,notes:text(4000)});
 export const paymentInput=z.object({leaseId:id,receivedOn:day,amountMinor:money,chargeIds:z.array(id).min(1).max(120).refine((ids)=>new Set(ids).size===ids.length,'Периоды не должны повторяться.'),method:z.enum(['cash','transfer','other']),notes:text(4000)});
 export const version=z.number().int().positive();
 export const settingsInput=z.object({businessName:z.string().trim().min(1).max(120),timezone:z.string().refine((value)=>{try{new Intl.DateTimeFormat('en',{timeZone:value});return true;}catch{return false;}}),reminderDays:z.number().int().min(0).max(90),reminderTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),telegramEnabled:z.boolean(),telegramChatId:z.string().trim().max(100).refine((v)=>v===''||/^-?\d+$/.test(v)),version});

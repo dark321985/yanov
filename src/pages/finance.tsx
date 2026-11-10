@@ -326,9 +326,9 @@ export function LeaseDetailPage() {
                 </Link>
                 <p>
                   С {date(lease.startDate)}
-                  {lease.endDate
-                    ? ` по ${date(inclusiveEnd(lease.endDate))}`
-                    : " · без даты окончания"}
+                  {lease.releasedOn
+                    ? ` · ${lease.startDate > lease.releasedOn ? "отменена" : "склад освобождён"} ${date(lease.releasedOn)}`
+                    : " · бессрочно"}
                 </p>
               </div>
               <Stat
@@ -453,11 +453,10 @@ export function LeaseDetailPage() {
                   size="sm"
                   onPress={() => setAction("close")}
                 >
-                  Завершить аренду
+                  {lease.status === "scheduled" ? "Отменить аренду" : "Освободить склад"}
                 </Button>
                 <p>
-                  Склад освободится с указанной даты. История и задолженность
-                  сохранятся.
+                  {lease.status === "scheduled" ? "Отменить запланированное заселение." : "Склад сразу станет свободным."} История, оплаты и задолженность сохранятся.
                 </p>
               </div>
             )}

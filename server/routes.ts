@@ -48,11 +48,11 @@ export async function registerBusiness(app: FastifyInstance,pool: pg.Pool,config
       return {client,leases:await s.allLeases(pool,today,'l.client_id=$1',[id]),charges:await s.allCharges(pool,today,'l.client_id=$1 AND c.cancelled_at IS NULL',[id]),payments:await s.allPayments(pool,'l.client_id=$1',[id])};
     });
     for(const entity of ['clients','warehouses'] as const)api.post(`/api/${entity}/:id/archive`,async(request)=>{
-      const {id}=params.parse(request.params),{version}=z.object({version:v.version}).strict().parse(request.body),{today}=await s.context(pool);
+      const {id}=params.parse(request.params),{version}=z.object({version:v.version}).strict().parse(request.body);
       await transaction(pool,async(tx)=>{
         const item=(await tx.query(`SELECT * FROM ${entity} WHERE id=$1 FOR UPDATE`,[id])).rows[0];if(!item)throw missing();
         if(item.version!==version)throw conflict('Запись изменена. Обновите данные.');
-        const active=await tx.query(`SELECT 1 FROM leases WHERE ${entity==='clients'?'client_id':'warehouse_id'}=$1 AND (end_date IS NULL OR end_date>$2) LIMIT 1`,[id,today]);
+        const active=await tx.query(`SELECT 1 FROM leases WHERE ${entity==='clients'?'client_id':'warehouse_id'}=$1 AND released_on IS NULL LIMIT 1`,[id]);
         if(active.rowCount)throw conflict('Сначала завершите действующие и запланированные аренды.');
         await tx.query(`UPDATE ${entity} SET archived_at=now(),version=version+1,updated_at=now() WHERE id=$1`,[id]);await s.audit(tx,entity,id,'archived');
       });return {ok:true};
@@ -97,9 +97,9 @@ export async function registerBusiness(app: FastifyInstance,pool: pg.Pool,config
       const {id}=params.parse(request.params),input=z.object({effectiveDate:v.day,monthlyRateMinor:v.money,version:v.version}).strict().parse(request.body);
       await s.changeRate(pool,id,input,(await s.context(pool)).today);return {ok:true};
     });
-    api.post('/api/leases/:id/close',async(request)=>{
-      const {id}=params.parse(request.params),input=z.object({endDate:v.day,version:v.version}).strict().parse(request.body);
-      await s.closeLease(pool,id,input.endDate,input.version,(await s.context(pool)).today);return {ok:true};
+    api.post('/api/leases/:id/release',async(request)=>{
+      const {id}=params.parse(request.params),input=z.object({version:v.version}).strict().parse(request.body);
+      await s.releaseLease(pool,id,input.version,(await s.context(pool)).today);return {ok:true};
     });
     api.post('/api/leases/:id/extend-schedule',async(request)=>{
       const {id}=params.parse(request.params),{months}=z.object({months:z.number().int().min(1).max(120)}).strict().parse(request.body),{today}=await s.context(pool);

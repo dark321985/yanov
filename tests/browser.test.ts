@@ -52,6 +52,8 @@ test('browser: owner workflow, manual payments, reports, reminders settings and 
     step='create lease';await page.goto(baseURL+'/leases');
     await page.getByRole('button',{name:'Оформить аренду',exact:true}).first().click();
     dialog=page.getByRole('dialog');
+    await expect(dialog.locator('input[name="endDate"]')).toHaveCount(0);
+    await expect(dialog.getByText(/Аренда бессрочная/)).toBeVisible();
     await dialog.getByRole('button',{name:/Клиент/}).click();
     await page.getByRole('option',{name:'Тестовый арендатор',exact:true}).click();
     await dialog.getByRole('button',{name:/Склад/}).click();
@@ -128,6 +130,20 @@ test('browser: owner workflow, manual payments, reports, reminders settings and 
     await dialog.getByLabel('Ставка за расчётный месяц, ₽',{exact:false}).fill('22000');await dialog.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(dialog).toHaveCount(0);
     const rates=await fixture.pool.query('SELECT client_id,monthly_amount_minor FROM lease_rate_versions r JOIN leases l ON l.id=r.lease_id ORDER BY monthly_amount_minor');
     assert.equal(rates.rows.length,2);assert.equal(rates.rows[0].client_id,rates.rows[1].client_id);assert.deepEqual(rates.rows.map((row)=>Number(row.monthly_amount_minor)),[1500000,2200000]);
+    step='release warehouse';await page.goto(baseURL+`/leases/${lease.id}`);
+    await page.getByRole('button',{name:'Освободить склад',exact:true}).click();
+    dialog=page.getByRole('dialog');
+    await expect(dialog.locator('input[type="date"]')).toHaveCount(0);
+    await expect(dialog.getByText(/без перерасчёта/)).toBeVisible();
+    await dialog.getByRole('button',{name:'Освободить склад',exact:true}).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'Освободить склад',exact:true})).toHaveCount(0);
+    const ended=(await fixture.pool.query('SELECT released_on,warehouse_id FROM leases WHERE id=$1',[lease.id])).rows[0];
+    assert.ok(ended.released_on);assert.equal(await balance(),2500000);
+    const remaining=(await fixture.pool.query('SELECT count(*) FROM charges WHERE lease_id=$1 AND cancelled_at IS NULL',[lease.id])).rows[0];
+    assert.equal(Number(remaining.count),1);
+    await page.goto(baseURL+`/warehouses/${ended.warehouse_id}`);
+    await expect(page.getByRole('button',{name:'Оформить аренду',exact:true})).toBeVisible();
     assert.deepEqual(errors,[]);
   } catch(error) {
     // Report safe assertion/location messages, never Playwright's request/body/cookie diagnostics.

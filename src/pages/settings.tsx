@@ -116,7 +116,7 @@ function SettingsForm({
         if (form.telegramEnabled && !telegram.configured)
           throw new Error("Сначала настройте токен бота на сервере.");
         if (form.telegramEnabled && !form.telegramChatId.trim())
-          throw new Error("Укажите ID получателя Telegram.");
+          throw new Error("Укажите ID чата Telegram.");
         return api("/api/settings", {
           method: "PATCH",
           body: { ...form, reminderDays: days },
@@ -217,20 +217,27 @@ function SettingsForm({
                     >
                       @BotFather
                     </a>
-                    , сохраните его токен в серверной переменной{" "}
-                    <code>TELEGRAM_BOT_TOKEN</code> и перезапустите сервер.
-                    Начните диалог с ботом, затем укажите ID получателя ниже.
+                    .{" "}
+                    {environment === "development" ? (
+                      <>Вставьте токен в <code>TELEGRAM_BOT_TOKEN</code> в файле <code>.env</code> проекта и перезапустите сервер.</>
+                    ) : (
+                      <>В Coolify откройте приложение → Environment Variables и добавьте токен в <code>TELEGRAM_BOT_TOKEN</code> как runtime-переменную. Затем перезапустите приложение.</>
+                    )}
                   </p>
-                  <p>Токен хранится на сервере и не передаётся в браузер.</p>
+                  <p>
+                    Напишите боту <code>/start</code>, укажите ID чата в поле ниже и сохраните настройки.
+                    Затем отправьте тест и включите автоматические напоминания.
+                  </p>
+                  <p>Токен хранится на сервере. Здесь отображается только статус его настройки.</p>
                 </div>
                 <Field
                   name="telegramChatId"
-                  label="ID получателя Telegram"
+                  label="ID чата Telegram"
                   value={form.telegramChatId}
                   onChange={(value) => change("telegramChatId", value)}
                   autoComplete="off"
                   placeholder="Числовой ID вашего чата"
-                  description="Число; для групп может начинаться с минуса. Не имя пользователя."
+                  description="Числовой ID личного чата или группы, куда отправлять напоминания. У группы может начинаться с минуса."
                 />
                 <div className="form-grid">
                   <Field
@@ -287,9 +294,11 @@ function SettingsForm({
                   <p>
                     {dirty
                       ? "Сначала сохраните изменения."
-                      : !settings.telegramChatId
-                        ? "Сначала укажите и сохраните ID получателя."
-                        : "Отправит настоящее сообщение по вашему нажатию."}
+                      : !telegram.configured
+                        ? "Сначала добавьте токен бота и перезапустите сервер."
+                        : !settings.telegramChatId
+                          ? "Сначала укажите и сохраните ID чата."
+                          : "Отправит настоящее сообщение по вашему нажатию."}
                   </p>
                 </div>
                 <div className="detail-facts">
