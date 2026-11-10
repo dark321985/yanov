@@ -1,0 +1,140 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { chromium,expect } from '@playwright/test';
+import { createServer } from 'vite';
+import { testDatabase } from './helpers.js';
+import { setupOwner } from '../server/auth.js';
+import { buildApp } from '../server/app.js';
+
+test('browser: owner workflow, manual payments, reports, reminders settings and mobile', {timeout:180000},async()=>{
+  const fixture=await testDatabase();
+  const password=randomBytes(24).toString('base64url');await setupOwner(fixture.pool,password);
+  const config={...fixture.config};
+  const app=await buildApp({config,pool:fixture.runtimePool,database:{status:async()=> 'connected',close:async()=>{}}});
+  await app.listen({host:'127.0.0.1',port:0});
+  const address=app.server.address();if(!address||typeof address==='string')throw new Error('BROWSER_API_NOT_LISTENING');
+  const target=`http://127.0.0.1:${address.port}`;
+  const vite=await createServer({logLevel:'silent',cacheDir:resolve('.local/vite-browser-cache'),server:{host:'127.0.0.1',port:0,strictPort:false,proxy:{'/api':target,'/health':target}}});
+  await vite.listen();const frontendAddress=vite.httpServer?.address();
+  if(!frontendAddress||typeof frontendAddress==='string')throw new Error('BROWSER_FRONTEND_NOT_LISTENING');
+  const baseURL=`http://127.0.0.1:${frontendAddress.port}`;config.APP_URL=baseURL;
+  const browser=await chromium.launch({channel:'chrome',headless:true});
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+  const errors:string[]=[];page.on('pageerror',()=>errors.push('BROWSER_RUNTIME_ERROR'));
+  let step='login';
+  // No trace, request dump, password screenshots or raw browser exceptions are saved.
+  try {
+    await page.goto(baseURL);
+    await page.getByLabel('Пароль',{exact:false}).fill(password);
+    await page.getByRole('button',{name:'Войти',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'Обзор аренды',exact:true})).toBeVisible();
+
+    step='create warehouse';await page.goto(baseURL+'/warehouses');
+    await page.getByRole('button',{name:'Добавить склад',exact:true}).first().click();
+    let dialog=page.getByRole('dialog');
+    await dialog.getByLabel('Номер склада',{exact:false}).fill('Т-01');
+    await dialog.getByLabel('Площадь, м²',{exact:false}).fill('24');
+    await dialog.getByRole('button',{name:'Сохранить',exact:true}).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('link',{name:/Т-01/}).first()).toBeVisible();
+
+    step='create client';await page.goto(baseURL+'/clients');
+    await page.getByRole('button',{name:'Добавить клиента',exact:true}).first().click();
+    dialog=page.getByRole('dialog');
+    await dialog.getByLabel('Имя или название организации',{exact:false}).fill('Тестовый арендатор');
+    await dialog.getByLabel('Телефон',{exact:true}).fill('+7 900 000-00-00');
+    await dialog.getByRole('button',{name:'Сохранить',exact:true}).click();
+    await expect(dialog).toHaveCount(0);
+
+    step='create lease';await page.goto(baseURL+'/leases');
+    await page.getByRole('button',{name:'Оформить аренду',exact:true}).first().click();
+    dialog=page.getByRole('dialog');
+    await dialog.getByRole('button',{name:/Клиент/}).click();
+    await page.getByRole('option',{name:'Тестовый арендатор',exact:true}).click();
+    await dialog.getByRole('button',{name:/Склад/}).click();
+    await page.getByRole('option',{name:/Т-01/}).click();
+    await dialog.getByLabel('Ставка за расчётный месяц, ₽',{exact:false}).fill('15000');
+    await dialog.getByRole('button',{name:'Сохранить',exact:true}).click();
+    await expect(dialog).toHaveCount(0);
+    const lease=(await fixture.pool.query('SELECT id FROM leases')).rows[0];assert.ok(lease);
+
+    step='partial payment';await page.goto(baseURL+'/payments');
+    await page.getByRole('button',{name:'Внести оплату',exact:true}).first().click();
+    dialog=page.getByRole('dialog');
+    step='partial: choose lease';
+    await dialog.getByRole('button',{name:/Аренда/}).click();
+    await page.getByRole('option',{name:/Тестовый арендатор/}).click();
+    step='partial: choose period';
+    await dialog.getByRole('checkbox').first().locator('xpath=ancestor::label[1]').click();
+    await expect(dialog.getByRole('checkbox').first()).toBeChecked();
+    step='partial: enter amount';
+    await dialog.getByLabel('Сумма поступления, ₽',{exact:false}).fill('5000');
+    await dialog.getByRole('button',{name:'Проверить распределение',exact:true}).click();
+    step='partial: preview';
+    await expect(dialog.getByRole('heading',{name:'Проверьте распределение'})).toBeVisible();
+    await dialog.getByRole('button',{name:'Зарегистрировать оплату',exact:true}).click();
+    step='partial: saved';
+    await expect(dialog).toHaveCount(0);
+    const balance=async()=>Number((await fixture.pool.query('SELECT sum(amount_minor) AS amount FROM payments WHERE reversed_at IS NULL')).rows[0].amount);
+    assert.equal(await balance(),500000);
+
+    step='multi-month payment';await page.goto(baseURL+`/leases/${lease.id}`);
+    await page.getByRole('button',{name:'Внести оплату',exact:true}).first().click();
+    dialog=page.getByRole('dialog');await dialog.getByRole('checkbox').nth(0).locator('xpath=ancestor::label[1]').click();await dialog.getByRole('checkbox').nth(1).locator('xpath=ancestor::label[1]').click();
+    await dialog.getByRole('button',{name:'Проверить распределение',exact:true}).click();
+    await dialog.getByRole('button',{name:'Зарегистрировать оплату',exact:true}).click();await expect(dialog).toHaveCount(0);
+    assert.equal(await balance(),3000000);
+
+    step='report';await page.goto(baseURL+'/reports');await expect(page.getByRole('heading',{name:'Поступления',exact:true})).toBeVisible();
+    await expect(page.getByText('30 000',{exact:false}).first()).toBeVisible();
+    step='settings';await page.goto(baseURL+'/settings');
+    const reminder=page.getByLabel('Напомнить за сколько дней',{exact:false});await reminder.fill('7');
+    await page.getByRole('button',{name:'Сохранить настройки',exact:true}).click();
+    await expect(page.getByText('Настройки актуальны',{exact:true})).toBeVisible();
+    assert.equal((await fixture.pool.query('SELECT reminder_days FROM app_settings')).rows[0].reminder_days,7);
+    await expect(page.getByRole('button',{name:'Отправить тест',exact:true})).toBeDisabled();
+
+    step='schedule';await page.goto(baseURL+'/schedule');await expect(page.getByRole('heading',{name:'График платежей',exact:true})).toBeVisible();
+    await page.goto(baseURL+'/');
+    await expect(page.getByRole('heading',{name:'Обзор аренды',exact:true})).toBeVisible();
+    await expect(page.getByText('30 000',{exact:false}).first()).toBeVisible();
+    await mkdir(resolve('.local/screenshots'),{recursive:true});
+    await page.screenshot({path:resolve('.local/screenshots/dashboard-desktop.png'),fullPage:true,animations:'disabled'});
+    step='mobile';await page.setViewportSize({width:390,height:844});await page.goto(baseURL+'/');
+    await expect(page.getByRole('button',{name:'Открыть меню',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Открыть меню',exact:true}).click();
+    await page.getByRole('link',{name:'Клиенты',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'Клиенты',exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Открыть меню',exact:true})).toHaveAttribute('aria-expanded','false');
+    await page.screenshot({path:resolve('.local/screenshots/clients-mobile.png'),fullPage:true,animations:'disabled'});
+    assert.ok(await page.evaluate<boolean>('document.documentElement.scrollWidth <= window.innerWidth + 1'),'No page-level horizontal overflow on mobile');
+    step='reversal';await page.setViewportSize({width:1440,height:1000});await page.goto(baseURL+'/payments');
+    await page.getByRole('button',{name:'Сторнировать',exact:true}).last().click();
+    dialog=page.getByRole('dialog');await dialog.getByLabel('Причина',{exact:false}).fill('Проверка исправления ошибочной записи');
+    await dialog.getByRole('button',{name:'Сторнировать',exact:true}).click();await expect(dialog).toHaveCount(0);
+    assert.equal(await balance(),2500000);
+    const existing=await fixture.pool.query('SELECT count(*) FROM payments');assert.equal(Number(existing.rows[0].count),2);
+    step='calendar list';await page.goto(baseURL+'/schedule');await page.getByRole('button',{name:'Список',exact:true}).click();
+    await expect(page.getByRole('button',{name:'Список',exact:true})).toHaveAttribute('aria-pressed','true');
+    step='notifications';await page.goto(baseURL+'/notifications');await expect(page.getByRole('heading',{name:'Журнал напоминаний',exact:true})).toBeVisible();
+    step='second warehouse same client';await page.goto(baseURL+'/warehouses');await page.getByRole('button',{name:'Добавить склад',exact:true}).first().click();
+    dialog=page.getByRole('dialog');await dialog.getByLabel('Номер склада',{exact:false}).fill('Т-02');await dialog.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(dialog).toHaveCount(0);
+    await page.goto(baseURL+'/leases');await page.getByRole('button',{name:'Оформить аренду',exact:true}).first().click();dialog=page.getByRole('dialog');
+    await dialog.getByRole('button',{name:/Клиент/}).click();await page.getByRole('option',{name:'Тестовый арендатор',exact:true}).click();
+    await dialog.getByRole('button',{name:/Склад/}).click();await page.getByRole('option',{name:/Т-02/}).click();
+    await dialog.getByLabel('Ставка за расчётный месяц, ₽',{exact:false}).fill('22000');await dialog.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(dialog).toHaveCount(0);
+    const rates=await fixture.pool.query('SELECT client_id,monthly_amount_minor FROM lease_rate_versions r JOIN leases l ON l.id=r.lease_id ORDER BY monthly_amount_minor');
+    assert.equal(rates.rows.length,2);assert.equal(rates.rows[0].client_id,rates.rows[1].client_id);assert.deepEqual(rates.rows.map((row)=>Number(row.monthly_amount_minor)),[1500000,2200000]);
+    assert.deepEqual(errors,[]);
+  } catch(error) {
+    // Report safe assertion/location messages, never Playwright's request/body/cookie diagnostics.
+    const headings=await page.getByRole('heading').allTextContents().catch(()=>[]);
+    const alerts=await page.getByRole('alert').allTextContents().catch(()=>[]);
+    const buttons=await page.getByRole('dialog').getByRole('button').allTextContents().catch(()=>[]);
+    console.error(JSON.stringify({step,headings,alerts,buttons,runtimeErrors:errors.length}));
+    throw new Error(`BROWSER_SCENARIO_FAILED: ${step}`);
+  } finally {await browser.close();await vite.close();await app.close();await fixture.close();}
+});

@@ -1,0 +1,23 @@
+# heroui-agents-md
+.heroui-docs/
+
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local configuration, credentials, data and diagnostics
+.env
+.env.*
+!.env.example
+!.env.production.example
+.data/
+.local/
+backups/
+*.dump
+*.sql.gz
+*.log
+test-results/
+playwright-report/
+.DS_Store
