@@ -29,6 +29,10 @@ export interface WarehouseDto {
   currentLease: LeaseDto | null; nextLease: LeaseDto | null;
 }
 export interface RateDto { id: string; effectiveDate: string; monthlyRateMinor: number }
+export interface LeaseCorrectionDto {
+  id:string; occurredAt:string; fromStartDate:string; toStartDate:string;
+  fromMonthlyRateMinor:number; toMonthlyRateMinor:number;
+}
 export interface LeaseDto {
   id: string; clientId: string; warehouseId: string; clientName: string; warehouseNumber: string;
   startDate: string; endDate: string | null; releasedOn: string | null; notes: string; version: number; status: LeaseStatus;

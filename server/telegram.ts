@@ -60,11 +60,13 @@ export async function runScheduler(pool:pg.Pool,config:AppConfig,provider:Telegr
       // The transaction is bounded by the 15s provider timeout; runtime statement timeout is set separately.
       await transaction(pool,async(tx)=>{
         await tx.query('SELECT id FROM leases WHERE id=$1 FOR UPDATE',[job.lease_id]);
+        const currentJob=(await tx.query('SELECT status FROM notification_jobs WHERE id=$1',[job.id])).rows[0];
+        if(currentJob?.status!=='sending')return;
         await tx.query('SELECT singleton FROM app_settings WHERE singleton FOR SHARE');
         const current=await settings(tx);
         const charge=(await allCharges(tx,today,'c.id=$1 AND c.cancelled_at IS NULL AND l.released_on IS NULL',[job.charge_id]))[0];
         if(!current.telegramEnabled||current.reminderDays!==job.rule_days||!charge||charge.remainingMinor===0
-          ||job.scheduled_on<addDays(today,-7)) {
+          ||job.scheduled_on!==addDays(charge.dueDate,-current.reminderDays)||job.scheduled_on<addDays(today,-7)) {
           await tx.query("UPDATE notification_jobs SET status='cancelled',result_code='NO_LONGER_REQUIRED' WHERE id=$1",[job.id]);return;
         }
         const result=await provider(config.TELEGRAM_BOT_TOKEN!,current.telegramChatId,message(charge,config));

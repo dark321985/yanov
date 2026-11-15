@@ -165,6 +165,33 @@ export async function changeRate(pool: pg.Pool,id: string,input:{effectiveDate:s
     await audit(tx,'lease',id,'rate_changed',{effectiveDate:input.effectiveDate,monthlyRateMinor:input.monthlyRateMinor});
   });
 }
+export async function correctLease(pool:pg.Pool,id:string,input:{startDate:string;monthlyRateMinor:number;version:number},today:string) {
+  await transaction(pool,async(tx)=>{
+    const lease=(await tx.query('SELECT * FROM leases WHERE id=$1 FOR UPDATE',[id])).rows[0];
+    if(!lease)throw missing();
+    if(lease.version!==input.version)throw conflict('Аренда изменена в другой вкладке. Обновите данные.');
+    if(lease.released_on)throw conflict('Завершённую аренду нельзя исправить этой операцией.');
+    if((await tx.query('SELECT 1 FROM payments WHERE lease_id=$1 LIMIT 1',[id])).rowCount)
+      throw conflict('По аренде уже есть история оплат. Исправление исходных условий недоступно, чтобы сохранить финансовую историю.');
+    const rates=(await tx.query('SELECT * FROM lease_rate_versions WHERE lease_id=$1 ORDER BY effective_date',[id])).rows;
+    if(rates.length!==1)throw conflict('В этой аренде уже менялась ставка. Для исправления нужна отдельная корректировка условий.');
+    const rate=rates[0]!,previousRate=number(rate.monthly_amount_minor);
+    if(lease.start_date===input.startDate&&previousRate===input.monthlyRateMinor)throw conflict('Дата и сумма не изменились.');
+    const charges=(await tx.query('SELECT * FROM charges WHERE lease_id=$1 AND cancelled_at IS NULL ORDER BY period_index FOR UPDATE',[id])).rows;
+    const chargesBefore=charges.map(c=>({id:c.id,periodIndex:c.period_index,periodStart:c.period_start,periodEnd:c.period_end,dueDate:c.due_date,amountMinor:number(c.amount_minor)}));
+    // The same lease is updated: PostgreSQL checks other leases, not itself.
+    // A real overlap rolls back this entire correction, including the schedule.
+    await tx.query('UPDATE leases SET start_date=$2,version=version+1,updated_at=now() WHERE id=$1',[id,input.startDate]);
+    await tx.query('UPDATE lease_rate_versions SET effective_date=$2,monthly_amount_minor=$3 WHERE id=$1',[rate.id,input.startDate,input.monthlyRateMinor]);
+    const corrected=charges.map(c=>({id:c.id,period_start:boundary(input.startDate,c.period_index),period_end:boundary(input.startDate,c.period_index+1)}));
+    await tx.query(`UPDATE charges c SET period_start=f.period_start,period_end=f.period_end,due_date=f.period_start,amount_minor=$3
+      FROM jsonb_to_recordset($2::jsonb) AS f(id uuid,period_start date,period_end date)
+      WHERE c.id=f.id AND c.lease_id=$1 AND c.cancelled_at IS NULL`,[id,JSON.stringify(corrected),input.monthlyRateMinor]);
+    await tx.query("UPDATE notification_jobs SET status='cancelled',result_code='LEASE_CORRECTED',locked_until=NULL WHERE lease_id=$1 AND status IN ('pending','sending')",[id]);
+    await ensureCharges(tx,today,12,id);
+    await audit(tx,'lease',id,'corrected',{fromStartDate:lease.start_date,toStartDate:input.startDate,fromMonthlyRateMinor:previousRate,toMonthlyRateMinor:input.monthlyRateMinor,chargesBefore});
+  });
+}
 export async function releaseLease(pool: pg.Pool,id: string,version: number,today: string) {
   await transaction(pool,async(tx)=>{
     const row=(await tx.query('SELECT * FROM leases WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!row)throw missing();

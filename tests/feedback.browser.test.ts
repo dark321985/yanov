@@ -66,7 +66,7 @@ test('feedback: visible mobile error popups, repeated failures, preserved form a
       await expect(popup.getByText(/Данные могли измениться/)).toHaveCount(0);
       const box=await popup.boundingBox();assert.ok(box);
       assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=width+1&&box.y+box.height<=(page.viewportSize()!.height)+1,'Popup fits the viewport');
-      assert.ok(await popup.evaluate(element=>{const box=element.getBoundingClientRect();return element.contains(document.elementFromPoint(box.left+box.width/2,box.top+box.height/2));}),'Error popup is above the editor');
+      assert.ok(await popup.evaluate(element=>{const box=element.getBoundingClientRect();return element.contains(element.ownerDocument.elementFromPoint(box.left+box.width/2,box.top+box.height/2));}),'Error popup is above the editor');
       await page.keyboard.press('Escape');
       await page.waitForTimeout(350);
       await expect(popup).toBeVisible();

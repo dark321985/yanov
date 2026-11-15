@@ -368,25 +368,37 @@ export function LeaseActionEditor({
   lease,
   action,
   onClose,
+  correctionBlockedReason,
 }: {
   lease: LeaseDto;
-  action: "notes" | "rate" | "close";
+  action: "notes" | "rate" | "close" | "correct";
   onClose: () => void;
+  correctionBlockedReason?: string;
 }) {
   const { today, invalidate, notify } = useWorkspace();
   const [notes, setNotes] = useState(lease.notes);
   const [effectiveDate, setEffectiveDate] = useState("");
+  const [startDate, setStartDate] = useState(lease.startDate);
   const [rate, setRate] = useState(decimalMoney(lease.monthlyRateMinor));
   const mutation = useMutation();
   const releaseLabel = lease.status === "scheduled" ? "Отменить аренду" : "Освободить склад";
   const dirty =
     action === "notes"
       ? notes !== lease.notes
-      : !!effectiveDate || rate !== decimalMoney(lease.monthlyRateMinor);
+      : action === "correct"
+        ? startDate !== lease.startDate || rate !== decimalMoney(lease.monthlyRateMinor)
+        : !!effectiveDate || rate !== decimalMoney(lease.monthlyRateMinor);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void mutation.run(
       async () => {
+        if (action === "correct") {
+          if (correctionBlockedReason) throw new Error(correctionBlockedReason);
+          return api(`/api/leases/${lease.id}/correct`, {
+            method: "POST",
+            body: {startDate, monthlyRateMinor: parseMoney(rate), version: lease.version},
+          });
+        }
         if (action === "notes")
           return api(`/api/leases/${lease.id}`, {
             method: "PATCH",
@@ -411,7 +423,7 @@ export function LeaseActionEditor({
       () => {
         invalidate();
         notify(
-          action === "close"
+          action === "correct" ? "Условия аренды исправлены" : action === "close"
             ? lease.status === "scheduled" ? "Аренда отменена" : "Склад освобождён"
             : "Изменения сохранены",
         );
@@ -424,9 +436,11 @@ export function LeaseActionEditor({
       title={
         action === "notes"
           ? "Заметка к аренде"
-          : action === "rate"
-            ? "Новая ставка аренды"
-            : releaseLabel
+          : action === "correct"
+            ? "Исправить аренду"
+            : action === "rate"
+              ? "Новая ставка аренды"
+              : releaseLabel
       }
       description={`Склад № ${lease.warehouseNumber} · ${lease.clientName}`}
       onClose={onClose}
@@ -434,7 +448,8 @@ export function LeaseActionEditor({
       busy={mutation.busy}
       error={mutation.error}
       dirty={dirty}
-      submitLabel={action === "close" ? releaseLabel : "Сохранить"}
+      submitLabel={action === "correct" ? "Сохранить исправление" : action === "close" ? releaseLabel : "Сохранить"}
+      submitDisabled={action === "correct" && (!dirty || !!correctionBlockedReason)}
     >
       {action === "notes" ? (
         <Field
@@ -444,6 +459,31 @@ export function LeaseActionEditor({
           onChange={setNotes}
           multiline
         />
+      ) : action === "correct" ? (
+        <>
+          <Field
+            name="startDate"
+            label="Начало аренды"
+            type="date"
+            value={startDate}
+            onChange={setStartDate}
+            required
+            disabled={!!correctionBlockedReason}
+            description="Расчётные месяцы будут отсчитываться от этой даты."
+          />
+          <Field
+            name="monthlyRateMinor"
+            label="Ставка за расчётный месяц, ₽"
+            value={rate}
+            onChange={setRate}
+            required
+            disabled={!!correctionBlockedReason}
+            inputMode="decimal"
+          />
+          <div className="info-note">
+            {correctionBlockedReason || "Исправьте ошибку в дате или сумме. График и задолженность пересчитаются с начала аренды, склад останется у того же клиента. Предыдущие условия сохранятся в истории исправлений."}
+          </div>
+        </>
       ) : (
         <>
           {action === "rate" && (

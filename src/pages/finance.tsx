@@ -20,6 +20,7 @@ import type {
   ChargeDto,
   DashboardDto,
   LeaseDto,
+  LeaseCorrectionDto,
   Page,
   PaymentDto,
   ReportDto,
@@ -275,20 +276,21 @@ interface LeaseDetail {
   lease: LeaseDto;
   charges: ChargeDto[];
   payments: PaymentDto[];
+  corrections: LeaseCorrectionDto[];
 }
 export function LeaseDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const { revision } = useWorkspace();
+  const { revision, timezone } = useWorkspace();
   const resource = useResource<LeaseDetail>(`/api/leases/${id}`, revision);
-  const [action, setAction] = useState<"notes" | "rate" | "close" | null>(null);
+  const [action, setAction] = useState<"notes" | "rate" | "close" | "correct" | null>(null);
   const [paying, setPaying] = useState<ChargeDto | "new" | null>(null);
   const [reversing, setReversing] = useState<PaymentDto | null>(null);
   return (
     <>
       <Back onPress={() => goBack(navigate, "/leases")}>Аренды</Back>
       <ResourceBody resource={resource}>
-        {({ lease, charges, payments }) => (
+        {({ lease, charges, payments, corrections = [] }) => (
           <>
             <PageHeader
               eyebrow="Карточка аренды"
@@ -296,6 +298,12 @@ export function LeaseDetailPage() {
               description={lease.clientName}
               action={
                 <>
+                  {lease.status !== "ended" && (
+                    <Button variant="secondary" onPress={() => setAction("correct")}>
+                      <Pencil size={15} />
+                      Исправить аренду
+                    </Button>
+                  )}
                   <Button
                     variant="secondary"
                     onPress={() => setAction("notes")}
@@ -444,6 +452,22 @@ export function LeaseDetailPage() {
                   Условия каждого оплаченного периода хранятся в начислениях.
                   Новая ставка не переписывает финансовую историю.
                 </p>
+                {corrections.length > 0 && (
+                  <>
+                    <div className="section-heading"><h2>Исправления исходных условий</h2></div>
+                    <div className="table-surface">
+                      <DataTable
+                        label="Исправления аренды"
+                        rows={corrections}
+                        columns={[
+                          {key:"when",label:"Исправлено",render:row=>new Intl.DateTimeFormat("ru-RU",{dateStyle:"short",timeStyle:"short",timeZone:timezone}).format(new Date(row.occurredAt))},
+                          {key:"start",label:"Начало аренды",render:row=>`${date(row.fromStartDate)} → ${date(row.toStartDate)}`},
+                          {key:"rate",label:"Ставка за месяц",render:row=>`${money(row.fromMonthlyRateMinor)} → ${money(row.toMonthlyRateMinor)}`},
+                        ]}
+                      />
+                    </div>
+                  </>
+                )}
               </Tabs.Panel>
             </Tabs>
             {lease.status !== "ended" && (
@@ -464,6 +488,11 @@ export function LeaseDetailPage() {
               <LeaseActionEditor
                 lease={lease}
                 action={action}
+                correctionBlockedReason={payments.length > 0
+                  ? "По аренде уже есть история оплат. Исправление исходных условий недоступно, чтобы сохранить финансовую историю."
+                  : lease.rates.length !== 1
+                    ? "В этой аренде уже менялась ставка. Для исправления нужна отдельная корректировка условий."
+                    : undefined}
                 onClose={() => setAction(null)}
               />
             )}

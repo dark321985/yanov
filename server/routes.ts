@@ -87,7 +87,8 @@ export async function registerBusiness(app: FastifyInstance,pool: pg.Pool,config
     });
     api.get('/api/leases/:id',async(request)=>{
       const {id}=params.parse(request.params),{today}=await s.context(pool),lease=(await s.allLeases(pool,today,'l.id=$1',[id]))[0];if(!lease)throw missing();
-      return {lease,charges:await s.allCharges(pool,today,'c.lease_id=$1 AND c.cancelled_at IS NULL',[id]),payments:await s.allPayments(pool,'p.lease_id=$1',[id])};
+      const corrections=(await pool.query("SELECT id,created_at,detail FROM audit_events WHERE entity_type='lease' AND entity_id=$1 AND action='corrected' ORDER BY created_at DESC,id DESC",[id])).rows.map(row=>({id:row.id,occurredAt:row.created_at.toISOString(),fromStartDate:row.detail.fromStartDate,toStartDate:row.detail.toStartDate,fromMonthlyRateMinor:row.detail.fromMonthlyRateMinor,toMonthlyRateMinor:row.detail.toMonthlyRateMinor}));
+      return {lease,charges:await s.allCharges(pool,today,'c.lease_id=$1 AND c.cancelled_at IS NULL',[id]),payments:await s.allPayments(pool,'p.lease_id=$1',[id]),corrections};
     });
     api.patch('/api/leases/:id',async(request)=>{
       const {id}=params.parse(request.params),input=z.object({notes:z.string().trim().max(4000),version:v.version}).strict().parse(request.body);
@@ -96,6 +97,10 @@ export async function registerBusiness(app: FastifyInstance,pool: pg.Pool,config
     api.post('/api/leases/:id/rates',async(request)=>{
       const {id}=params.parse(request.params),input=z.object({effectiveDate:v.day,monthlyRateMinor:v.money,version:v.version}).strict().parse(request.body);
       await s.changeRate(pool,id,input,(await s.context(pool)).today);return {ok:true};
+    });
+    api.post('/api/leases/:id/correct',async(request)=>{
+      const {id}=params.parse(request.params),input=z.object({startDate:v.day,monthlyRateMinor:v.money,version:v.version}).strict().parse(request.body);
+      await s.correctLease(pool,id,input,(await s.context(pool)).today);return {ok:true};
     });
     api.post('/api/leases/:id/release',async(request)=>{
       const {id}=params.parse(request.params),input=z.object({version:v.version}).strict().parse(request.body);
