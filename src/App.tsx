@@ -9,7 +9,7 @@ import {
   createBrowserRouter,
   useLocation,
 } from "react-router-dom";
-import { Button } from "@heroui/react";
+import { Button, Toast } from "@heroui/react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -606,5 +606,15 @@ const router = createBrowserRouter([
   },
 ]);
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <>
+      <RouterProvider router={router} />
+      <Toast.Provider
+        placement="top"
+        width="min(460px, calc(100vw - 32px))"
+        className="workspace-toasts"
+        aria-label="Уведомления"
+      />
+    </>
+  );
 }

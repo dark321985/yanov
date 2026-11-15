@@ -486,36 +486,6 @@ h1 {
   font-size: 16px;
   min-height: 170px;
 }
-.error-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  border: 1px solid color-mix(in oklch, var(--danger) 18%, var(--surface));
-  background: color-mix(in oklch, var(--danger) 4%, var(--surface));
-  color: var(--danger);
-  padding: 15px 16px;
-  border-radius: var(--radius-lg);
-  font-size: 15px;
-  line-height: 1.6;
-  margin-block: 12px;
-}
-.error-notice > svg {
-  margin-top: 2px;
-}
-.error-notice strong {
-  font-weight: 500;
-}
-.error-notice p {
-  margin: 6px 0 0;
-}
-.error-notice .button {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-.error-notice ul {
-  padding-left: 16px;
-  margin: 8px 0 0;
-}
 .empty-state {
   min-height: 240px;
   padding: 46px 24px;
@@ -555,40 +525,26 @@ h1 {
 .empty-state > a {
   margin-top: 20px;
 }
-.toast {
-  position: fixed;
-  z-index: 100;
-  bottom: 25px;
-  right: 28px;
-  max-width: min(430px, calc(100vw - 32px));
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  padding: 16px 18px;
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-overlay);
+.workspace-toasts {
+  z-index: 1100;
+}
+.error-popup-backdrop {
+  z-index: 1200;
+}
+.error-popup-dialog {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.error-popup-message {
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.error-popup-fields {
+  margin-top: 12px;
+  padding-left: 20px;
   font-size: 15px;
-  animation: toast-in 200ms ease-out both;
-}
-.toast__tick {
-  background: color-mix(in oklch, var(--accent) 10%, var(--surface));
-  color: var(--accent);
-  width: 23px;
-  height: 23px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-}
-.toast > button {
-  margin-left: 14px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  width: 24px;
-  height: 24px;
-  font-size: 20px;
+  line-height: 1.5;
 }
 .info-note,
 .inline-warning {
@@ -990,9 +946,6 @@ h1 {
 .editor-form .inline-warning {
   margin-bottom: 0;
 }
-.editor-form .error-notice {
-  margin: 0;
-}
 .editor-form .entity-picker .search-box {
   max-width: none;
   margin-bottom: 8px;
@@ -1122,9 +1075,6 @@ h1 {
 }
 .extend-schedule .input {
   min-height: 34px;
-}
-.extend-schedule .error-notice {
-  width: 100%;
 }
 .payment-preview {
   background: color-mix(in oklch, var(--accent) 5%, var(--surface));
@@ -2113,16 +2063,6 @@ h1 {
   from {
     opacity: 0;
     transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
   }
   to {
     opacity: 1;

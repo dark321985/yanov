@@ -29,6 +29,7 @@
     "test:rental-release": "tsx --test tests/rental-release.test.ts",
     "test:backup": "tsx --test tests/backup.test.ts",
     "test:browser": "tsx --test tests/browser.test.ts",
+    "test:feedback": "tsx --test tests/feedback.browser.test.ts",
     "test:demo-finance": "tsx --test tests/demo-finance.test.ts",
     "test:production": "tsx --test tests/production.test.ts",
     "db:backup": "tsx scripts/backup.ts",

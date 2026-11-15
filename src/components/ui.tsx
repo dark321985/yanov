@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useBlocker } from "react-router-dom";
 import type { NavigateFunction } from "react-router-dom";
 import {
+  AlertDialog,
   Button,
   Chip,
   Description,
@@ -18,7 +19,6 @@ import {
   TextField,
 } from "@heroui/react";
 import {
-  AlertCircle,
   ArrowLeft,
   ArrowRight,
   Inbox,
@@ -111,36 +111,73 @@ export function ErrorNotice({
   error: Error | null;
   retry?: () => void;
 }) {
-  return error ? (
-    <div className="error-notice" role="alert">
-      <AlertCircle size={17} />
-      <div>
-        <strong>{error.message}</strong>
-        {error instanceof ApiFailure && error.status === 409 && (
-          <p>
-            Данные могли измениться. Обновите страницу и проверьте актуальное
-            состояние.
-          </p>
-        )}
-        {error instanceof ApiFailure &&
-          Object.keys(error.fields).length > 0 && (
-            <ul>
-              {Object.entries(error.fields).map(([field, message]) => (
-                <li key={field}>
-                  {fieldLabels[field.split(".")[0] ?? field] ?? "Параметр"}:{" "}
-                  {message}
-                </li>
-              ))}
-            </ul>
-          )}
-      </div>
-      {retry && (
-        <Button size="sm" variant="tertiary" onPress={retry}>
-          Повторить
+  const [dismissed, setDismissed] = useState<Error | null>(null);
+  const messageId = useId();
+  if (!error) return null;
+  const close = () => setDismissed(error);
+  return (
+    <>
+      <AlertDialog.Backdrop
+        isOpen={dismissed !== error}
+        onOpenChange={(open) => {
+          if (!open) close();
+        }}
+        className="error-popup-backdrop"
+        isDismissable={false}
+        isKeyboardDismissDisabled
+      >
+        <AlertDialog.Container placement="center" size="sm">
+          <AlertDialog.Dialog
+            className="error-popup-dialog"
+            aria-describedby={messageId}
+          >
+            <AlertDialog.Header>
+              <AlertDialog.Icon status="danger" />
+              <AlertDialog.Heading>
+                {retry ? "Не удалось загрузить данные" : "Действие не выполнено"}
+              </AlertDialog.Heading>
+            </AlertDialog.Header>
+            <AlertDialog.Body>
+              <p id={messageId} className="error-popup-message">
+                {error.message}
+              </p>
+              {error instanceof ApiFailure && Object.keys(error.fields).length > 0 && (
+                <ul className="error-popup-fields">
+                  {Object.entries(error.fields).map(([field, message]) => (
+                    <li key={field}>
+                      {fieldLabels[field.split(".")[0] ?? field] ?? "Параметр"}: {message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </AlertDialog.Body>
+            <AlertDialog.Footer>
+              {retry && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onPress={() => {
+                    close();
+                    retry();
+                  }}
+                >
+                  Повторить
+                </Button>
+              )}
+              <Button type="button" autoFocus onPress={close}>
+                Понятно
+              </Button>
+            </AlertDialog.Footer>
+          </AlertDialog.Dialog>
+        </AlertDialog.Container>
+      </AlertDialog.Backdrop>
+      {retry && dismissed === error && (
+        <Button type="button" variant="secondary" onPress={retry}>
+          Повторить загрузку
         </Button>
       )}
-    </div>
-  ) : null;
+    </>
+  );
 }
 export function Empty({
   title,

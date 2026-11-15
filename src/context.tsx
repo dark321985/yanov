@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { toast } from "@heroui/react";
 import { api } from "./api";
 
 interface OwnerContext {
@@ -38,9 +39,10 @@ export function WorkspaceProvider({
 }) {
   const [context, setContext] = useState(initial);
   const [revision, setRevision] = useState(0);
-  const [toast, setToast] = useState<string | null>(null);
   const invalidate = useCallback(() => setRevision((value) => value + 1), []);
-  const notify = useCallback((message: string) => setToast(message), []);
+  const notify = useCallback((message: string) => {
+    toast.success(message, { timeout: 5000 });
+  }, []);
   const refreshContext = useCallback(async () => {
     setContext(await api<OwnerContext>("/api/context"));
   }, []);
@@ -48,11 +50,6 @@ export function WorkspaceProvider({
     await api("/api/auth/logout", { method: "POST", body: {} });
     onLogout();
   }, [onLogout]);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
   useEffect(() => {
     const update = () => {
       if (document.visibilityState === "visible")
@@ -79,21 +76,6 @@ export function WorkspaceProvider({
       }}
     >
       {children}
-      {toast && (
-        <div className="toast" role="status">
-          <span className="toast__tick" aria-hidden="true">
-            ✓
-          </span>
-          {toast}
-          <button
-            type="button"
-            aria-label="Закрыть уведомление"
-            onClick={() => setToast(null)}
-          >
-            ×
-          </button>
-        </div>
-      )}
     </Workspace.Provider>
   );
 }
